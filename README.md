@@ -1,0 +1,2 @@
+# decky-romsync
+
