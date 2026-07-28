@@ -7,11 +7,6 @@ on:
   push:
     tags:
       - "v*"
-    # TEMPORARY bootstrap trigger, removed in the next commit. workflow_dispatch
-    # only works once the workflow is on the default branch, so the first
-    # release has to be cut from a push to this branch.
-    branches:
-      - claude/review-claude-md-b74mty
   workflow_dispatch:
 
 permissions:
