@@ -1,0 +1,26 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output — the plugin store builds from source, and releases attach
+# the artifact rather than tracking it.
+dist/
+out/
+cli/
+
+# Python
+__pycache__/
+*.pyc
+
+# Secrets — never commit a SteamGridDB key
+.env
+steamgriddb_key.txt
+.steamgriddb_key
+
+# Editors / OS
+.idea
+.vscode/settings.json
+*.iml
+.DS_Store
+Thumbs.db
+*.log

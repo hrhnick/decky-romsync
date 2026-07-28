@@ -1,0 +1,18 @@
+{
+  "name": "ROM Sync",
+  "author": "hrhnick",
+  "flags": [
+    "debug"
+  ],
+  "api_version": 1,
+  "publish": {
+    "tags": [
+      "emulation",
+      "library",
+      "retroarch",
+      "roms"
+    ],
+    "description": "Turns a ROM folder into Steam shortcuts with artwork and per-system collections. RetroArch-first, with per-folder launch commands you can point at any emulator.",
+    "image": "https://raw.githubusercontent.com/hrhnick/decky-romsync/main/assets/thumbnail.png"
+  }
+}
