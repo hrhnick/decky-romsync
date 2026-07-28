@@ -115,10 +115,11 @@ export const wrapText = {
 /**
  * Shared visual scale.
  *
- * Two type sizes, two secondary opacities, two button heights. Every value
- * used to be picked locally, which produced four font sizes and five button
- * heights across two screens — small differences, but collectively the thing
- * that makes an interface look assembled rather than designed.
+ * Two type sizes and two secondary opacities; the shared button height lives
+ * just below in `compactButton`. Every value used to be picked locally, which
+ * produced four font sizes and five button heights across two screens — small
+ * differences, but collectively the thing that makes an interface look
+ * assembled rather than designed.
  */
 export const ui = {
   /** Body copy: statuses, messages, list rows. */

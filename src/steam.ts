@@ -62,10 +62,10 @@ export async function removeShortcut(appid: number) {
  * must stay valid for as long as the shortcut does, so it points at the plugin
  * runtime dir (or the user's own art folder), never a temp file.
  *
- * Caveat: SteamGridDB's own Decky plugin does not use this API. It edits
- * shortcuts.vdf directly and then prompts for a Steam restart, which suggests
- * SetShortcutIcon may not take effect live. Verify on device; if the icon only
- * appears after restarting Steam, that is expected rather than a bug here.
+ * This takes effect live — verified on hardware, no Steam restart needed.
+ * Worth stating because SteamGridDB's own Decky plugin implies otherwise: it
+ * edits shortcuts.vdf directly and then prompts for a restart. Do not "fix"
+ * this by reintroducing binary VDF editing on the strength of their approach.
  */
 export async function setShortcutIcon(appid: number, path: string) {
   await SteamClient.Apps.SetShortcutIcon(appid, path);

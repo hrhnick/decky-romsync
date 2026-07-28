@@ -1,0 +1,78 @@
+name: Release
+
+# Normally this fires on a version tag:  git tag v1.8.0 && git push --tags
+# workflow_dispatch is there so a release can also be cut from the Actions tab
+# without pushing a tag.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` input — the action reads packageManager from package.json,
+      # so the pinned pnpm stays in one place.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
+      # The stale-bundle trap: a build that silently compiles old sources
+      # succeeds and ships with no error. Fail here instead of on device.
+      - name: Check the bundle is not stale
+        run: |
+          count=$(grep -c prefetch_art dist/index.js || true)
+          if [ "$count" != "1" ]; then
+            echo "::error::expected 1 occurrence of prefetch_art in dist/index.js, found $count"
+            exit 1
+          fi
+
+      - name: Assemble the deploy set
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          # The seven files that run on device, under a single folder — Decky's
+          # "Install Plugin from ZIP File" expects exactly this shape.
+          mkdir -p "out/ROM Sync/dist"
+          cp plugin.json package.json main.py romsync.py sgdb.py arcade.py "out/ROM Sync/"
+          cp dist/index.js "out/ROM Sync/dist/"
+          (cd out && zip -rq "../ROM-Sync-$VERSION.zip" "ROM Sync")
+          unzip -l "ROM-Sync-$VERSION.zip"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$VERSION"
+          ASSET="ROM-Sync-$VERSION.zip"
+
+          if [ -f RELEASE_NOTES.md ]; then
+            NOTES=(--notes-file RELEASE_NOTES.md)
+          else
+            NOTES=(--generate-notes)
+          fi
+
+          # Idempotent: a re-run replaces the asset rather than failing on an
+          # existing release.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists, updating its asset"
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" \
+              --target "$GITHUB_SHA" \
+              --title "ROM Sync $VERSION" \
+              "${NOTES[@]}"
+          fi
