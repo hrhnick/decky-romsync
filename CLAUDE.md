@@ -207,6 +207,39 @@ Fired together, the wait is the timeout once. This is not a gratuitous
 `-L` argument, rather than regenerating the file from parsed values. Hand-added
 flags and comments have to survive. Do not refactor it into parse-and-rebuild.
 
+**In `launcher` mode the launch target and the identity are different files.**
+`launcher = .sh` in `.romsync.txt` makes every subfolder one game — romhacks,
+decomps, native recompilations — but `rom_path` is the *script inside*, not the
+folder. That split is deliberate and load-bearing in both directions:
+
+- the script must be `rom_path`, or adoption (`syncStore.ts` matches
+  `rom_path` against whole shortcut arguments) and deletion (`Manifest.plan`
+  tests `os.path.exists(rom_path)`) both break, and `startDirOf` stops
+  yielding the game's own folder as the working directory
+- identity must come from the folder, or a release shipping `run.sh` syncs as
+  "run", keys its overrides on `run.sh` and looks for artwork called `run`
+
+`scan` carries this in one variable, `named = f.parent if config.launcher else f`.
+If you add a consumer of `filename`, it is the **folder** name here.
+
+**`main.py` must read `filename` from the manifest, not derive it.** It is in
+the `commit` whitelist for this reason. Deriving it from `rom_path` — which is
+what the code did before launcher mode — makes ManageRom send the script's
+name while `scan` keys overrides on the folder, so every Title, SteamGridDB-ID
+and Exclude override set in the UI silently does nothing.
+
+**Games launch via `sh <script>`, never by executing the script.** The plugin
+does not chmod files in the library. A script copied off a FAT or exFAT drive
+has no executable bit and would otherwise sync cleanly and fail at launch. The
+cost is that the shebang is ignored; the generated config file says to switch
+to `/bin/bash` if a launcher needs it.
+
+**One alias per script-launcher system.** `SYSTEM_BY_ALIAS` maps every alias
+onto a single `System` with a single key, and `detect_systems` keeps only the
+first folder it sees per key — so aliasing `ports` and `romhacks` onto `comps`
+would make those folders silently vanish from the panel. More built-in names
+need their own entries with distinct keys.
+
 ---
 
 ## Fragile surfaces

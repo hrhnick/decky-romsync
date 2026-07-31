@@ -86,6 +86,33 @@ pointing at the cause. If you hit that, `sudo chown -R deck:deck
 
 Only the `systemctl restart` needs sudo.
 
+## Romhacks, decompilations and recompilations
+
+Not everything is a ROM. Decomps and native recompilations ship as a folder
+with a launcher script and no emulator at all. Put them in a `comps` folder,
+one folder per game, with the script named after its folder:
+
+```
+roms/comps/Sonic 3 A.I.R/Sonic 3 A.I.R.sh
+roms/comps/Ship of Harkinian/Ship of Harkinian.sh
+```
+
+Sync picks these up as games named after their folders, and they get artwork
+and a Steam category like anything else. Two rules keep it unambiguous: the
+launcher is the script named after the folder, or the only script in it — a
+release that ships an uninstaller beside the real launcher would otherwise be
+a coin flip, and the panel tells you which folders it could not decide about.
+
+Scripts are run with `sh`, so they never need the executable bit — which
+matters, because a copy off a FAT or exFAT drive does not have one. The
+trade-off is that the script's `#!` line is ignored; if a launcher genuinely
+needs bash, change the command in `comps/.romsync.txt` to
+`/bin/bash "{rom}"`.
+
+Any folder name works, not just `comps` — write `system` and `launcher = .sh`
+into its `.romsync.txt` and it becomes its own Steam category. That is how you
+keep `ports` and `romhacks` separate.
+
 ## Why?
 
 Steam ROM Manager, the inspiration for this plugin, can be overwhelming for new users. In addition it requires desktop mode, and closing Steam. Decky ROM Sync allows managing almost everything from Gamescope/Big Picture, in addition to having an easy to modify text file based configuration for advanced power users.

@@ -35,17 +35,6 @@ def _settings_dir() -> Path:
     return Path(decky.DECKY_PLUGIN_SETTINGS_DIR)
 
 
-def _emulator_of(launch_options: str) -> str:
-    """The core or program a shortcut runs, read back off its arguments."""
-    core = R.command_core(launch_options)
-    if core:
-        return Path(core).name.replace("_libretro.so", "")
-    for token in launch_options.split():
-        if "." in token and "/" not in token:
-            return token
-    return ""
-
-
 def _read_json(path: Path, fallback):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -591,12 +580,19 @@ class Plugin:
                 # the ROM's parent, which is a game subfolder on ScummVM.
                 "system_dir": R.system_dir_for(rom) if rom else "",
                 "art": e.get("art") or [],
-                "filename": Path(rom).name if rom else "",
+                # Taken from the manifest, because for a game whose folder is
+                # its identity the filename is the folder, not the file inside
+                # it. Deriving it would key the override editor on the launcher
+                # script while the scan keys it on the folder, and every
+                # override set from Manage ROM would silently do nothing.
+                # Derived only as a fallback, for manifests written earlier.
+                "filename": e.get("filename") or (Path(rom).name if rom else ""),
                 "system_label": e.get("system_label", ""),
                 # What Steam will actually execute, for the About readout.
                 "exe": e.get("exe", ""),
                 "launch_options": e.get("launch_options", ""),
-                "emulator": _emulator_of(e.get("launch_options", "")),
+                "emulator": R.emulator_of(e.get("exe", ""),
+                                          e.get("launch_options", "")),
                 "adopted": bool(e.get("adopted")),
             })
         out.sort(key=lambda g: g["title"].casefold())
@@ -655,7 +651,8 @@ class Plugin:
             uid = item["uid"]
             entry = dict(self.manifest.data.get(uid) or {})
             for key in ("appid", "rom_path", "title", "system_key", "exe",
-                        "launch_options", "system_label", "system_dir"):
+                        "launch_options", "system_label", "system_dir",
+                        "filename"):
                 if item.get(key) is not None:
                     entry[key] = item[key]
             # Only the callers that actually applied artwork report it.

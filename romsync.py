@@ -66,6 +66,22 @@ SKIP_DIRS = {"media", "images", "downloaded_images", "manuals", "videos",
 MAX_DEPTH = 3
 
 
+# {rom} is replaced with the ROM's absolute path. Splitting happens before
+# substitution so a path containing spaces stays one argument.
+#
+# Defined up here rather than beside the other launch-command helpers because
+# the system table below bakes it into a default command.
+ROM_TOKEN = "{rom}"
+
+SHELL_BIN = "/bin/sh"
+# `sh <script>` rather than executing the script directly: the plugin never
+# chmods a user's files, and a script copied off a FAT or exFAT stick has no
+# executable bit — it would sync cleanly and then fail at launch. The cost is
+# that the script's own #! line is ignored, so a launcher that genuinely needs
+# bash wants /bin/bash instead. The generated .romsync.txt says so.
+NATIVE_COMMAND = f'{SHELL_BIN} "{ROM_TOKEN}"'
+
+
 # --------------------------------------------------------------------------
 # System table
 # --------------------------------------------------------------------------
@@ -82,6 +98,13 @@ class System:
     cores: list[str] = field(default_factory=list)
     #: Games here are folders, not files — seeds `folders = yes`.
     folders: bool = False
+    #: Games here are folders holding a launcher with one of these extensions —
+    #: seeds `launcher = .sh`. A list rather than a flag so an .AppImage
+    #: release needs no new key.
+    launcher: list[str] = field(default_factory=list)
+    #: A literal command for a system that launches its own games, with no
+    #: libretro core in the picture — seeds `command =` verbatim.
+    command: str = ""
 
     @property
     def core(self) -> str | None:
@@ -157,6 +180,16 @@ SYSTEMS: list[System] = [
     # The game is the directory: lair.daphne/ holds the video and data files.
     System("daphne", "Daphne", ["daphne", "laserdisc", "singe"],
        [".daphne", ".singe"], cores=[]),
+    # Romhacks, decompilations and native recompilations: not ROMs at all, but
+    # a folder per game with a launcher script inside, and no emulator.
+    #
+    # One alias, deliberately. SYSTEM_BY_ALIAS maps every alias onto a single
+    # System with a single key, and detect_systems keeps only the first folder
+    # it sees per key — so aliasing "ports" and "romhacks" onto this entry
+    # would make those folders silently vanish from the panel. Any other folder
+    # name already works by hand: write system and command into .romsync.txt.
+    System("comps", "Recompilations", ["comps"],
+       [], cores=[], launcher=[".sh"], command=NATIVE_COMMAND),
 ]
 
 SYSTEM_BY_ALIAS: dict[str, System] = {}
@@ -259,9 +292,7 @@ def install_cores(names: list[str], timeout: int = 120) -> list[dict]:
 # --------------------------------------------------------------------------
 # Launch commands
 # --------------------------------------------------------------------------
-# {rom} is replaced with the ROM's absolute path. Splitting happens before
-# substitution so a path containing spaces stays one argument.
-ROM_TOKEN = "{rom}"
+# ROM_TOKEN is defined above the system table, which bakes it into a default.
 
 
 def retroarch_command(core_path: str) -> str:
@@ -272,6 +303,10 @@ def retroarch_command(core_path: str) -> str:
 def default_command(system: System) -> tuple[str, str | None]:
     """(command, missing core name). The command is written even when the core
     is absent, so installing it later makes the folder work with no edit."""
+    # A system that launches its own games names its command outright. There is
+    # no core to look for, so nothing can be missing.
+    if system.command:
+        return system.command, None
     if not system.core:
         return "", None
     resolved = find_core(system.core)
@@ -306,6 +341,47 @@ def command_core(command: str) -> str | None:
     return None
 
 
+# A game launched through one of these is running itself, not being emulated.
+NATIVE_EXES = {"sh", "bash", "env"}
+
+
+def emulator_name(parts: list[str]) -> tuple[str, str]:
+    """(what a command runs, what kind of thing that is), from a split argv.
+
+    Three shapes: a libretro core named by -L, a game that runs itself through
+    a shell, and anything else — where a flatpak id is the most recognisable
+    token and the program's own name is the fallback.
+
+    One function because three callers used to answer this question their own
+    way and disagreed: the scan, the Emulators page and the About pane.
+    """
+    if not parts:
+        return "", ""
+    for i, part in enumerate(parts):
+        if part == "-L" and i + 1 < len(parts):
+            return Path(parts[i + 1]).name.replace("_libretro.so", ""), "core"
+    # Naming the shell here would be true and useless — `sh` is how the
+    # executable bit is avoided, not what the game runs on.
+    if Path(parts[0]).name in NATIVE_EXES:
+        return "Native", "native"
+    hit = next((p for p in parts[1:] if "." in p and "/" not in p), None)
+    return hit or Path(parts[0]).name, "emulator"
+
+
+def emulator_of(exe: str, launch_options: str) -> str:
+    """The emulator name for a shortcut, read back off what Steam will run.
+
+    Splits with shlex because that is what wrote the string. Splitting on
+    whitespace instead reported the tail of any path containing a space,
+    trailing quote included.
+    """
+    try:
+        args = shlex.split(launch_options)
+    except ValueError:
+        args = []
+    return emulator_name([exe] + args)[0] if exe else ""
+
+
 # --------------------------------------------------------------------------
 # Per-folder configuration: .romsync.txt
 # --------------------------------------------------------------------------
@@ -334,6 +410,10 @@ class FolderConfig:
     #: Each immediate subdirectory is one game, for systems that store a game
     #: as a folder rather than a file.
     folders: bool = False
+    #: Each immediate subdirectory is one game, launched by the file inside it
+    #: whose extension is listed here. A list rather than a flag so an
+    #: .AppImage release needs no new key.
+    launcher: list[str] = field(default_factory=list)
     games: dict[str, dict] = field(default_factory=dict)
 
 
@@ -369,6 +449,11 @@ def parse_folder_config(text: str) -> FolderConfig:
                     e if e.startswith(".") else f".{e}"
                     for e in re.split(r"[,\s]+", value.casefold()) if e
                 ]
+            elif key == "launcher":
+                config.launcher = [
+                    e if e.startswith(".") else f".{e}"
+                    for e in re.split(r"[,\s]+", value.casefold()) if e
+                ]
             continue
         if key not in FIELDS:
             continue
@@ -386,6 +471,19 @@ def parse_folder_config(text: str) -> FolderConfig:
     return config
 
 
+LAUNCHER_NOTE = """\
+Each game here is a folder with a launcher inside it:
+
+    Sonic 3 A.I.R/Sonic 3 A.I.R{first}
+
+The launcher must be named after its folder, or be the only {exts} file in
+it — a release that ships an uninstaller beside the real launcher is
+otherwise a coin flip. It is run with `sh`, so it never needs the
+executable bit, but that also means its #! line is ignored: a launcher
+that genuinely needs bash wants /bin/bash "{{rom}}" as the command.\
+"""
+
+
 def format_folder_config(config: FolderConfig, note: str = "") -> str:
     lines = [
         f"# ROM Sync - {config.system or 'system'}",
@@ -394,13 +492,14 @@ def format_folder_config(config: FolderConfig, note: str = "") -> str:
         "#   command    = how each ROM launches; {rom} becomes the file path",
         "#   extensions = which files in this folder count as games",
         "#   folders    = yes, if each game here is a folder rather than a file",
+        "#   launcher   = .sh, if each game is a folder with a launcher inside",
         "#",
         "# Point command at any emulator you like. This file wins over the",
         "# plugin's defaults, and travels with the ROMs.",
         "#",
     ]
     if note:
-        lines += [f"# {line}" for line in note.splitlines()] + ["#"]
+        lines += [f"# {line}".rstrip() for line in note.splitlines()] + ["#"]
     lines.append("")
     lines.append(f"system = {config.system}")
     if config.command:
@@ -411,18 +510,26 @@ def format_folder_config(config: FolderConfig, note: str = "") -> str:
             '# command = /usr/bin/flatpak run org.some.Emulator "{rom}"',
             "# command =",
         ]
-    if config.folders:
+    if config.launcher:
+        lines.append(f"launcher = {' '.join(config.launcher)}")
+        lines.append("# extensions = .ext .ext   if the games here are files after all")
+    elif config.folders:
         lines.append("folders = yes")
     else:
         lines.append(f"extensions = {' '.join(config.extensions)}"
                      if config.extensions else
                      "# extensions = .ext .ext   which files here are games")
         lines.append("# folders = yes   if each game here is a folder, not a file")
+        lines.append("# launcher = .sh  if each game is a folder with a script inside")
 
     lines += [
         "",
         "# Per-ROM corrections below. One block each:",
-        "#   file = Some Game (USA).ext",
+        # In launcher mode the game is the folder, so that is what `file =`
+        # names. Someone who writes the script's filename here gets silence.
+        ("#   file = Some Game    the game's folder name, not the script"
+         if config.launcher else
+         "#   file = Some Game (USA).ext"),
         "#   sgdb_id = 1234      pin artwork",
         "#   title = Nicer Name  rename in Steam",
         "#   exclude = yes       keep out of Steam",
@@ -525,14 +632,23 @@ def ensure_folder_config(system_dir: Path, system: System | None
         config.command = config.command or command
         config.extensions = config.extensions or list(system.exts)
         config.folders = config.folders or system.folders
-        note = ("The core for this system is not installed yet. Install it "
-                "from the plugin, or from RetroArch's own Core Downloader."
-                ) if absent else ""
+        config.launcher = config.launcher or list(system.launcher)
+        if absent:
+            note = ("The core for this system is not installed yet. Install it "
+                    "from the plugin, or from RetroArch's own Core Downloader.")
+        elif config.launcher:
+            note = LAUNCHER_NOTE.format(exts=" or ".join(config.launcher),
+                                        first=config.launcher[0])
+        else:
+            note = ""
         write_folder_config(system_dir, config, note)
-    elif system is not None and not config.extensions:
+    elif system is not None and not config.extensions and system.exts:
         # Backfill: files written before extensions were listed still work off
         # the built-in table, but writing them in keeps every folder's file
         # looking the same and makes the list editable. One-time.
+        #
+        # Guarded on system.exts too: a launcher system has none, and without
+        # the guard this branch rewrote its file on every single scan.
         config.extensions = list(system.exts)
         write_folder_config(system_dir, config)
 
@@ -1010,15 +1126,31 @@ def find_local_art(rom_path: str, system_key: str, asset: str,
     rom = Path(rom_path)
     directory = system_dir or system_dir_for(rom_path)
 
+    # A game that lives in its own folder is named by that folder, not by the
+    # file inside it: art for comps/Sonic 3 A.I.R/run.sh belongs under
+    # "Sonic 3 A.I.R". Only when the parent really is a game folder — for a ROM
+    # sitting directly in the system folder the parent *is* the system, and
+    # media/grid/nes.png is a folder image, not a game's. Also fixes ScummVM,
+    # where the stub file is named nothing like the game.
+    stems = [rom.stem]
+    if (rom.parent.name and rom.parent.name != rom.stem
+            and os.path.realpath(rom.parent) != os.path.realpath(directory)):
+        stems.append(rom.parent.name)
+
+    # Layout stays the outer loop, so the newest layout still wins outright and
+    # the file's own name wins within a layout.
     candidates: list[Path] = []
-    for ext in MEDIA_EXTS:
-        candidates.append(media_path_for(directory, asset, rom_path, ext))
-    for ext in MEDIA_EXTS:
-        candidates.append(rom.parent / MEDIA_DIR / f"{rom.stem}.{asset}{ext}")
-    for root in discover_roots():
+    for stem in stems:
         for ext in MEDIA_EXTS:
-            candidates.append(Path(root) / "art" / system_key /
-                              f"{rom.stem}.{asset}{ext}")
+            candidates.append(media_dir_for(directory, asset) / (stem + ext))
+    for stem in stems:
+        for ext in MEDIA_EXTS:
+            candidates.append(rom.parent / MEDIA_DIR / f"{stem}.{asset}{ext}")
+    for root in discover_roots():
+        for stem in stems:
+            for ext in MEDIA_EXTS:
+                candidates.append(Path(root) / "art" / system_key /
+                                  f"{stem}.{asset}{ext}")
 
     for candidate in candidates:
         if candidate.is_file():
@@ -1132,24 +1264,91 @@ def collect_m3u_members(system_dir: Path) -> set[str]:
     return members
 
 
+def resolve_launcher(game_dir: Path, exts: list[str]) -> tuple[Path | None, str]:
+    """The file that launches the game in `game_dir`, or (None, why not).
+
+    Prefer the launcher named after its folder. Romhack and decomp releases
+    follow that convention, and it is the only rule that stays unambiguous
+    when a release ships helper scripts beside the real one — an uninstaller,
+    a mod loader, a launcher for the level editor. A lone script is
+    unambiguous by itself. Anything else is a guess, and a wrong guess here
+    does not fail loudly: it launches the uninstaller.
+
+    Only the folder's own files are considered. Recursing finds `tools/build.sh`
+    in exactly the repositories this exists for.
+    """
+    order = [e.casefold() for e in exts]
+    try:
+        found = [c for c in sorted(game_dir.iterdir())
+                 if c.is_file() and not c.name.startswith(".")
+                 and c.suffix.casefold() in order]
+    except OSError as e:
+        return None, f"can't be read ({e.strerror or e})"
+
+    if not found:
+        return None, f"has no {' or '.join(order)} file in it"
+
+    # Extension precedence follows the order written in the config line, so
+    # `launcher = .sh .AppImage` means what it reads like.
+    found.sort(key=lambda s: order.index(s.suffix.casefold()))
+
+    named = [s for s in found if s.stem.casefold() == game_dir.name.casefold()]
+    if named:
+        return named[0], ""
+    if len(found) == 1:
+        return found[0], ""
+    return None, (f"has {len(found)} launchers "
+                  f"({', '.join(s.name for s in found[:3])}) and none is named "
+                  f'after the folder — rename the right one to '
+                  f'"{game_dir.name}{order[0]}"')
+
+
 def iter_games(system_dir: Path, extensions: Iterable[str],
-               folders: bool = False) -> Iterable[Path]:
+               folders: bool = False, launcher: Iterable[str] = (),
+               problems: list[tuple[Path, str]] | None = None) -> Iterable[Path]:
     """Every game in a system folder, file or directory.
 
     Not every system stores a game as a single file. Daphne names the game
     directory itself (`lair.daphne/`); DOS, PS3 and Wii U keep a folder per
     game with the launchable file buried inside, where matching on extension
-    finds SETUP.EXE and EBOOT.BIN rather than the game. Two forms cover both:
+    finds SETUP.EXE and EBOOT.BIN rather than the game. Three forms cover it:
 
     - a directory whose name ends in a configured extension is a game
     - `folders = yes` in .romsync.txt makes every immediate subdirectory one
       game, named after the folder
+    - `launcher = .sh` also makes every immediate subdirectory one game, but
+      yields the launcher *inside* it — romhacks and decompilations, which
+      have no emulator and run a script instead
 
-    Both hand the directory itself to the emulator, which is what the ones
-    that work this way expect.
+    The first two hand the directory itself to the emulator, which is what the
+    ones that work this way expect. The third hands over the script, so the
+    shortcut's working directory ends up being the game's own folder.
+
+    `problems` collects (folder, reason) for game folders whose launcher could
+    not be picked. A bare generator cannot reach the caller's notes list, and
+    a folder that looks like a game but yields nothing has to be reported or
+    it reads as the plugin losing games.
     """
     exts = {e.casefold() for e in extensions}
     system_dir = Path(system_dir)
+    launcher = list(launcher)
+
+    # Checked before `folders`: both name the folder as the game, and only this
+    # one knows what to launch inside it.
+    if launcher:
+        try:
+            children = sorted(system_dir.iterdir())
+        except OSError:
+            return
+        for child in children:
+            if not child.is_dir() or child.name.casefold() in SKIP_DIRS:
+                continue
+            script, why = resolve_launcher(child, launcher)
+            if script is not None:
+                yield script
+            elif problems is not None:
+                problems.append((child, why))
+        return
 
     if folders:
         try:
@@ -1181,9 +1380,13 @@ def iter_games(system_dir: Path, extensions: Iterable[str],
 
 
 def count_roms(system_dir: Path, extensions: Iterable[str],
-               folders: bool = False) -> int:
-    """How many games are in a folder."""
-    return sum(1 for _ in iter_games(system_dir, extensions, folders))
+               folders: bool = False, launcher: Iterable[str] = ()) -> int:
+    """How many games are in a folder.
+
+    Passes no `problems` list, so a folder whose launcher can't be picked is
+    not counted — the count is of games that would actually sync.
+    """
+    return sum(1 for _ in iter_games(system_dir, extensions, folders, launcher))
 
 
 def detect_systems(roots: list[str] | None = None,
@@ -1216,25 +1419,18 @@ def detect_systems(roots: list[str] | None = None,
             if key in seen:
                 continue
             exts = config.extensions or (system.exts if system else [])
-            games = count_roms(child, exts, config.folders)
+            games = count_roms(child, exts, config.folders, config.launcher)
             if games == 0 and not include_empty:
                 continue
             # What this system actually launches with, for the emulator
-            # readout: a core name when the command runs RetroArch, otherwise
-            # the program itself, which is how a custom command shows up.
-            core = command_core(config.command) if config.command else None
-            if core:
-                emulator = Path(core).name.replace("_libretro.so", "")
-                kind = "core"
-            elif config.command:
+            # readout: a core name when the command runs RetroArch, "Native"
+            # when the game runs itself, otherwise the program.
+            if config.command:
                 try:
                     parts = shlex.split(config.command)
                 except ValueError:
                     parts = []
-                emulator = next(
-                    (p for p in parts[1:] if "." in p and "/" not in p),
-                    Path(parts[0]).name if parts else "")
-                kind = "emulator"
+                emulator, kind = emulator_name(parts)
             else:
                 emulator, kind = "", ""
 
@@ -1354,15 +1550,29 @@ def scan(roots: list[str] | None = None,
 
             system_key = system.key if system else sysdir.name.casefold()
             exts = config.extensions or (system.exts if system else [])
-            if not exts and not config.folders:
+            if not exts and not config.folders and not config.launcher:
                 notes.append(f"Skipped {config.system}: no file extensions "
                              f"known. Add an 'extensions' line to "
                              f"{OVERRIDE_FILENAME}.")
                 continue
 
-            for f in sorted(iter_games(sysdir, exts, config.folders)):
+            # A game folder we can't pick a launcher for is reported, not
+            # dropped: from outside, a folder that yields nothing looks like
+            # the plugin losing games.
+            problems: list[tuple[Path, str]] = []
+            found = sorted(iter_games(sysdir, exts, config.folders,
+                                      config.launcher, problems))
+            for game_dir, why in problems:
+                notes.append(f'{config.system}: "{game_dir.name}" {why}.')
+
+            # In launcher mode the script is the launch target and never the
+            # identity — a release shipping `run.sh` would otherwise sync as
+            # "run", key its overrides on "run.sh" and look for artwork called
+            # "run". The folder is the game.
+            for f in found:
+                named = f.parent if config.launcher else f
                 real = os.path.realpath(f)
-                ov = config.games.get(f.name.casefold(), {})
+                ov = config.games.get(named.name.casefold(), {})
                 if ov.get("exclude"):
                     excluded.add(uid_for(real))
                     continue
@@ -1370,18 +1580,22 @@ def scan(roots: list[str] | None = None,
                 title = str(ov.get("title") or "").strip()
                 if not title and arcade_names is not None \
                         and system_key in arcade.ARCADE_SYSTEMS:
-                    dat_title = arcade_names.lookup(f.name)
+                    dat_title = arcade_names.lookup(named.name)
                     if dat_title:
                         title = tidy_title(dat_title)
                 if not title:
-                    title = clean_title(f.name)
+                    # A folder name never was a filename, so Path().stem must
+                    # not touch it: clean_title turns "Sonic 3 A.I.R" into
+                    # "Sonic 3 A.I" and "Zelda.64.Recomp" into "Zelda.64".
+                    title = (tidy_title(named.name) if config.launcher
+                             else clean_title(named.name))
                 if not title:
                     continue
 
                 sgdb_id = ov.get("sgdb_id")
                 candidates.append({
                     "title": title,
-                    "filename": f.name,
+                    "filename": named.name,
                     "rom_path": real,
                     "system_key": system_key,
                     "system_label": config.system,
@@ -1508,7 +1722,12 @@ def _apply_command(entry: RomEntry, config: FolderConfig,
         return
 
     entry.exe, entry.launch_options = split
-    entry.emulator = Path(core).name if core else Path(entry.exe).name
+    # Read off the command rather than the substituted arguments, so a ROM path
+    # that happens to contain a dot can't be mistaken for a flatpak id.
+    try:
+        entry.emulator = emulator_name(shlex.split(command))[0]
+    except ValueError:
+        entry.emulator = Path(entry.exe).name
     entry.resolved = True
 
 
