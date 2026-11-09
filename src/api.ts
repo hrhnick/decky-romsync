@@ -1,4 +1,5 @@
 import { callable } from "@decky/api";
+import { t } from "./i18n";
 
 /**
  * Backend calls can hang indefinitely — restarting plugin_loader while a call
@@ -11,7 +12,12 @@ export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promis
     p,
     new Promise<T>((_, reject) =>
       setTimeout(
-        () => reject(new Error(`${label} did not respond after ${Math.round(ms / 1000)}s`)),
+        () =>
+          reject(
+            new Error(
+              t("api.timeout", { label, seconds: Math.round(ms / 1000) }),
+            ),
+          ),
         ms,
       ),
     ),
@@ -48,6 +54,7 @@ export interface Candidate {
   year?: number;
 }
 
+export const setLanguage = callable<[lang: string], string>("set_language");
 export const getSettings = callable<[], any>("get_settings");
 export const setSettings = callable<[patch: any], any>("set_settings");
 export const installRetroArch =

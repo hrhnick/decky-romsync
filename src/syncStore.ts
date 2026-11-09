@@ -23,6 +23,7 @@ import {
   updateShortcut,
 } from "./steam";
 import { refreshManaged } from "./managed";
+import { t, tp } from "./i18n";
 
 export type Phase = "idle" | "scanning" | "applying" | "done" | "error";
 
@@ -77,12 +78,12 @@ export function cancel() {
     set({
       phase: "error",
       busy: false,
-      status: "Stopped. Anything already added was kept — run Sync again to continue.",
+      status: t("sync.stopped"),
     });
     return;
   }
   aborted = true;
-  set({ status: "Finishing the current game, then stopping. Press again to force stop." });
+  set({ status: t("sync.stopping") });
 }
 
 const ART_SLOTS: [string, AssetType][] = [
@@ -104,18 +105,18 @@ export interface SyncOptions {
 export async function runSync(options: SyncOptions = {}) {
   if (state.busy) return;
   aborted = false;
-  set({ phase: "scanning", progress: 0, status: "Looking for ROMs", summary: [], busy: true });
+  set({ phase: "scanning", progress: 0, status: t("sync.lookingForRoms"), summary: [], busy: true });
 
   try {
-    const plan = await withTimeout(buildPlan(), 180000, "Scan");
+    const plan = await withTimeout(buildPlan(), 180000, t("sync.scanLabel"));
 
     // Removals are the only destructive part, so they get a look-in first.
     if (plan.remove.length && options.confirmRemovals) {
-      set({ status: "Waiting for confirmation" });
+      set({ status: t("sync.waitingConfirmation") });
       const go = await options.confirmRemovals(plan.remove);
       if (!go) {
         set({ phase: "done", busy: false, status: "",
-              summary: ["Cancelled. Nothing was changed."] });
+              summary: [t("sync.cancelled")] });
         return;
       }
     }
@@ -126,7 +127,7 @@ export async function runSync(options: SyncOptions = {}) {
       set({
         phase: "done",
         busy: false,
-        summary: [`Nothing to do. ${plan.counts.found} games already in sync.`],
+        summary: [tp("sync.nothingToDo", plan.counts.found)],
       });
       return;
     }
@@ -138,7 +139,7 @@ export async function runSync(options: SyncOptions = {}) {
     // false-adopts (a shortcut pointing at "Mario.nes.bak" contains the path
     // of "Mario.nes") and costs shortcuts × games comparisons; pulling the
     // quoted arguments out and looking them up is exact and linear.
-    set({ phase: "applying", status: "Checking existing shortcuts" });
+    set({ phase: "applying", status: t("sync.checkingShortcuts") });
     const existing = await listShortcuts();
     const wanted = new Map<string, boolean>();
     for (const e of plan.add) wanted.set(e.rom_path, true);
@@ -174,7 +175,11 @@ export async function runSync(options: SyncOptions = {}) {
         if (aborted) break;
         const slice = needArt.slice(i, i + CHUNK);
         set({
-          status: `Fetching artwork ${done + 1}-${Math.min(done + slice.length, needArt.length)} of ${needArt.length}`,
+          status: t("sync.fetchingArt", {
+            from: done + 1,
+            to: Math.min(done + slice.length, needArt.length),
+            total: needArt.length,
+          }),
           progress: (done / needArt.length) * 100,
         });
         const pre = await withTimeout(
@@ -187,7 +192,7 @@ export async function runSync(options: SyncOptions = {}) {
             })),
           ),
           180000,
-          "Artwork fetch",
+          t("sync.artFetchLabel"),
         );
         found += pre.ok;
         missing += pre.failed;
@@ -199,9 +204,11 @@ export async function runSync(options: SyncOptions = {}) {
       }
 
       if (missing > 0) {
-        artNote.unshift(`Artwork: ${found} found, ${missing} without.`);
+        artNote.unshift(
+          t("sync.artSummary", { found, missing }),
+        );
         if (limited) {
-          artNote.push("Hit the SteamGridDB rate limit — rerun Sync later to fill gaps.");
+          artNote.push(t("sync.rateLimited"));
         }
       }
     }
@@ -217,7 +224,7 @@ export async function runSync(options: SyncOptions = {}) {
     const applyArt = async (appid: number, e: any, isNew: boolean): Promise<string[]> => {
       const { art, icon_path, warning } = await withTimeout(
         getArt(e.rom_path, e.title, e.system_key, e.sgdb_id ?? null),
-        60000, "Artwork",
+        60000, t("sync.artLabel"),
       );
       if (warning && artNote.length < 12) artNote.push(`• ${warning}`);
 
@@ -251,12 +258,12 @@ export async function runSync(options: SyncOptions = {}) {
       const adopt = byRom.get(e.rom_path);
       let appid: number;
       if (adopt !== undefined) {
-        set({ status: `Adopting ${step + 1}/${total} · ${e.title}` });
+        set({ status: t("sync.adopting", { step: step + 1, total, title: e.title }) });
         await updateShortcut(adopt, spec);
         appid = adopt;
         adoptedCount++;
       } else {
-        set({ status: `Adding ${step + 1}/${total} · ${e.title}` });
+        set({ status: t("sync.adding", { step: step + 1, total, title: e.title }) });
         appid = await addShortcut(spec);
       }
 
@@ -271,7 +278,7 @@ export async function runSync(options: SyncOptions = {}) {
     let artworkOnly = 0;
     for (const e of plan.artwork) {
       if (aborted) break;
-      set({ status: `Artwork ${step + 1}/${total} · ${e.title}` });
+      set({ status: t("sync.artworkStep", { step: step + 1, total, title: e.title }) });
       const landed = await applyArt(e.appid, e, false);
       updated.push({ ...e, art: landed });
       artworkOnly++;
@@ -280,7 +287,7 @@ export async function runSync(options: SyncOptions = {}) {
 
     for (const e of plan.update) {
       if (aborted) break;
-      set({ status: `Updating ${step + 1}/${total} · ${e.title}` });
+      set({ status: t("sync.updating", { step: step + 1, total, title: e.title }) });
       await updateShortcut(e.appid, {
         title: e.title,
         exe: e.exe,
@@ -294,7 +301,7 @@ export async function runSync(options: SyncOptions = {}) {
     const touchedCategories = new Set<string>();
     for (const e of plan.remove) {
       if (aborted) break;
-      set({ status: `Removing ${step + 1}/${total} · ${e.title}` });
+      set({ status: t("sync.removing", { step: step + 1, total, title: e.title }) });
       if (e.appid) await removeShortcut(e.appid);
       if (e.system_label) touchedCategories.add(e.system_label);
       removedUids.push(e.uid);
@@ -303,7 +310,7 @@ export async function runSync(options: SyncOptions = {}) {
 
     if (!aborted) {
       for (const [label, appids] of Object.entries(bySystem)) {
-        set({ status: `Filing into ${label}` });
+        set({ status: t("sync.filingInto", { label }) });
         await addToCollection(label, appids);
       }
     }
@@ -312,13 +319,13 @@ export async function runSync(options: SyncOptions = {}) {
     // off doesn't leave a hollow entry behind in the library.
     let prunedCategories: string[] = [];
     if (touchedCategories.size) {
-      set({ status: "Tidying categories" });
+      set({ status: t("sync.tidying") });
       prunedCategories = await pruneEmptyCollections([...touchedCategories]);
     }
 
     // Commit whatever actually landed, cancelled or not, so the manifest
     // always describes reality rather than intent.
-    await withTimeout(commit(added, updated, removedUids), 60000, "Save");
+    await withTimeout(commit(added, updated, removedUids), 60000, t("sync.saveLabel"));
 
     // Menu entries should be right straight after a sync, not after a reload.
     // commit has already landed, so a refresh reads the truth rather than
@@ -326,18 +333,24 @@ export async function runSync(options: SyncOptions = {}) {
     await refreshManaged();
 
     const lines: string[] = [];
-    if (aborted) lines.push("Stopped early. Everything done so far was kept.");
+    if (aborted) lines.push(t("sync.stoppedEarly"));
     const realUpdates = updated.length - artworkOnly;
     lines.push(
-      `Added ${added.length - adoptedCount}, adopted ${adoptedCount}, ` +
-        `updated ${realUpdates}, removed ${removedUids.length}.`,
+      t("sync.totals", {
+        added: added.length - adoptedCount,
+        adopted: adoptedCount,
+        updated: realUpdates,
+        removed: removedUids.length,
+      }),
     );
     if (prunedCategories.length) {
-      lines.push(`Removed empty categories: ${prunedCategories.join(", ")}.`);
+      lines.push(t("sync.prunedCategories", { list: prunedCategories.join(", ") }));
     }
     const artAttempted = added.length + artworkOnly;
     if (artAttempted > 0) {
-      lines.push(`Artwork applied to ${artApplied} of ${artAttempted}.`);
+      lines.push(
+        t("sync.artApplied", { applied: artApplied, attempted: artAttempted }),
+      );
     }
     lines.push(...artNote);
     // Notes explain the non-obvious outcomes — an unreadable root, a folder
@@ -347,13 +360,13 @@ export async function runSync(options: SyncOptions = {}) {
       lines.push(`• ${note}`);
     }
     if ((plan.notes?.length ?? 0) > 6) {
-      lines.push(`…and ${plan.notes.length - 6} more notes.`);
+      lines.push(t("sync.moreNotes", { count: plan.notes.length - 6 }));
     }
     if (plan.counts.excluded > 0) {
-      lines.push(`${plan.counts.excluded} excluded by .romsync.txt.`);
+      lines.push(t("sync.excluded", { count: plan.counts.excluded }));
     }
     if (plan.counts.unresolved > 0) {
-      lines.push(`${plan.counts.unresolved} skipped — no emulator:`);
+      lines.push(t("sync.skippedNoEmulator", { count: plan.counts.unresolved }));
       for (const u of plan.unresolved.slice(0, 5)) {
         lines.push(`• ${u.title} — ${u.reason}`);
       }
@@ -372,7 +385,7 @@ export async function runSync(options: SyncOptions = {}) {
 export async function runReset() {
   if (state.busy) return;
   aborted = false;
-  set({ phase: "applying", progress: 0, status: "Reading library", summary: [], busy: true });
+  set({ phase: "applying", progress: 0, status: t("sync.readingLibrary"), summary: [], busy: true });
 
   try {
     const games = await listGames();
@@ -383,7 +396,7 @@ export async function runReset() {
 
     for (const g of games) {
       if (aborted) break;
-      set({ status: `Removing ${step + 1}/${games.length} · ${g.title}` });
+      set({ status: t("sync.removing", { step: step + 1, total: games.length, title: g.title }) });
       if (g.appid && !g.adopted) {
         await removeShortcut(g.appid);
         deleted++;
@@ -398,7 +411,7 @@ export async function runReset() {
       games.map((g) => (g as any).system_label).filter(Boolean) as string[],
     )];
     if (categories.length) {
-      set({ status: "Tidying categories" });
+      set({ status: t("sync.tidying") });
       await pruneEmptyCollections(categories);
     }
 
@@ -409,11 +422,11 @@ export async function runReset() {
       busy: false,
       status: "",
       summary: [
-        `Removed ${deleted} shortcuts.`,
+        t("sync.removedShortcuts", { count: deleted }),
         ...(untracked
-          ? [`Left ${untracked} adopted shortcuts alone, just stopped tracking them.`]
+          ? [t("sync.leftAdopted", { count: untracked })]
           : []),
-        "Collections and .romsync.txt files were not touched.",
+        t("sync.filesUntouched"),
       ],
     });
   } catch (err: any) {

@@ -16,6 +16,7 @@ import arcade
 import difflib
 import glob
 import hashlib
+import i18n
 import json
 import os
 import re
@@ -587,7 +588,7 @@ def write_folder_config(system_dir: Path, config: FolderConfig,
         os.replace(tmp, path)
         return True, str(path)
     except OSError as e:
-        return False, f"Can't write {path}: {e}"
+        return False, i18n.t("rom.writeError", path=path, error=e)
 
 
 def save_override(system_dir: Path, filename: str, sgdb_id=None,
@@ -769,7 +770,8 @@ def save_library_paths(paths: list[str]) -> tuple[bool, str]:
                 pass
         return True, str(LIBRARY_PATH_FILE)
     except OSError as e:
-        return False, f"Can't write {LIBRARY_PATH_FILE}: {e}"
+        return False, i18n.t("rom.libraryWriteError",
+                            file=LIBRARY_PATH_FILE, error=e)
 
 
 def resolve_library_path(raw: str) -> str | None:
@@ -853,7 +855,7 @@ def _discover_roots_uncached() -> list[str]:
 
 def removable_bases() -> list[dict]:
     """Mounted volumes a library could be created on, for the setup prompt."""
-    out = [{"label": "Home folder", "path": str(HOME)}]
+    out = [{"label": i18n.t("main.homeFolder"), "path": str(HOME)}]
     seen = {str(HOME)}
     for base in _candidate_bases():
         p = str(base)
@@ -874,7 +876,7 @@ def create_library(base: str) -> tuple[bool, str, list[str]]:
     try:
         root = Path(os.path.expanduser(base.strip()))
         if not root.is_dir():
-            return False, f"No folder at {root}.", []
+            return False, i18n.t("main.noFolder", path=root), []
         roms = root / "Emulation" / "roms"
         roms.mkdir(parents=True, exist_ok=True)
 
@@ -891,7 +893,7 @@ def create_library(base: str) -> tuple[bool, str, list[str]]:
         save_library_paths([str(roms)])
         return True, str(roms), created
     except OSError as e:
-        return False, f"Couldn't create the library: {e}", []
+        return False, i18n.t("rom.createError", error=e), []
 
 
 def _first_key_line(path: Path) -> str | None:
@@ -917,7 +919,7 @@ def save_key_file(key: str) -> tuple[bool, str]:
         os.chmod(target, 0o600)
         return True, str(target)
     except OSError as e:
-        return False, f"Can't write {target}: {e}"
+        return False, i18n.t("rom.writeError", path=target, error=e)
 
 
 def key_search_paths() -> list[Path]:
@@ -1172,7 +1174,7 @@ def set_system_core(system_dir: Path, core: str) -> tuple[bool, str]:
     try:
         original = path.read_text(encoding="utf-8")
     except OSError as e:
-        return False, f"Can't read {path}: {e}"
+        return False, i18n.t("rom.readError", path=path, error=e)
 
     resolved = find_core(core) or str(CORE_DIR / core_filename(core))
     lines = original.splitlines(keepends=True)
@@ -1187,9 +1189,7 @@ def set_system_core(system_dir: Path, core: str) -> tuple[bool, str]:
 
         old = command_core(value.strip())
         if not old:
-            return False, ("This system doesn't launch through RetroArch, so "
-                           "there is no core to change. Edit the command in "
-                           f"{OVERRIDE_FILENAME} instead.")
+            return False, i18n.t("rom.notRetroarch", file=OVERRIDE_FILENAME)
         if old == resolved:
             return True, str(path)
 
@@ -1200,9 +1200,9 @@ def set_system_core(system_dir: Path, core: str) -> tuple[bool, str]:
             os.replace(tmp, path)
             return True, str(path)
         except OSError as e:
-            return False, f"Can't write {path}: {e}"
+            return False, i18n.t("rom.writeError", path=path, error=e)
 
-    return False, f"No command line found in {path}."
+    return False, i18n.t("rom.noCommandLine", path=path)
 
 
 def system_dir_for(rom_path: str, roots: list[str] | None = None) -> str:
@@ -1283,10 +1283,10 @@ def resolve_launcher(game_dir: Path, exts: list[str]) -> tuple[Path | None, str]
                  if c.is_file() and not c.name.startswith(".")
                  and c.suffix.casefold() in order]
     except OSError as e:
-        return None, f"can't be read ({e.strerror or e})"
+        return None, i18n.t("rom.launcherUnreadable", error=e.strerror or e)
 
     if not found:
-        return None, f"has no {' or '.join(order)} file in it"
+        return None, i18n.t("rom.launcherNoFile", exts=" or ".join(order))
 
     # Extension precedence follows the order written in the config line, so
     # `launcher = .sh .AppImage` means what it reads like.
@@ -1297,10 +1297,12 @@ def resolve_launcher(game_dir: Path, exts: list[str]) -> tuple[Path | None, str]
         return named[0], ""
     if len(found) == 1:
         return found[0], ""
-    return None, (f"has {len(found)} launchers "
-                  f"({', '.join(s.name for s in found[:3])}) and none is named "
-                  f'after the folder — rename the right one to '
-                  f'"{game_dir.name}{order[0]}"')
+    return None, i18n.t(
+        "rom.launcherAmbiguous",
+        count=len(found),
+        names=", ".join(s.name for s in found[:3]),
+        target=f"{game_dir.name}{order[0]}",
+    )
 
 
 def iter_games(system_dir: Path, extensions: Iterable[str],
@@ -1534,7 +1536,7 @@ def scan(roots: list[str] | None = None,
         try:
             sysdirs = sorted(p for p in root_path.iterdir() if p.is_dir())
         except OSError as e:
-            notes.append(f"Can't read {root}: {e}")
+            notes.append(i18n.t("rom.scanReadError", root=root, error=e))
             continue
 
         for sysdir in sysdirs:
@@ -1544,16 +1546,17 @@ def scan(roots: list[str] | None = None,
             config, _missing = ensure_folder_config(sysdir, system)
 
             if not config.system:
-                notes.append(f"Skipped {sysdir.name}: no system name in "
-                             f"{OVERRIDE_FILENAME}.")
+                notes.append(i18n.t("rom.skippedNoSystem",
+                                    folder=sysdir.name,
+                                    file=OVERRIDE_FILENAME))
                 continue
 
             system_key = system.key if system else sysdir.name.casefold()
             exts = config.extensions or (system.exts if system else [])
             if not exts and not config.folders and not config.launcher:
-                notes.append(f"Skipped {config.system}: no file extensions "
-                             f"known. Add an 'extensions' line to "
-                             f"{OVERRIDE_FILENAME}.")
+                notes.append(i18n.t("rom.skippedNoExts",
+                                    system=config.system,
+                                    file=OVERRIDE_FILENAME))
                 continue
 
             # A game folder we can't pick a launcher for is reported, not
@@ -1563,7 +1566,8 @@ def scan(roots: list[str] | None = None,
             found = sorted(iter_games(sysdir, exts, config.folders,
                                       config.launcher, problems))
             for game_dir, why in problems:
-                notes.append(f'{config.system}: "{game_dir.name}" {why}.')
+                notes.append(i18n.t("rom.gameProblem", system=config.system,
+                                    folder=game_dir.name, why=why))
 
             # In launcher mode the script is the launch target and never the
             # identity — a release shipping `run.sh` would otherwise sync as
@@ -1649,14 +1653,17 @@ def _resolve_collisions(candidates: list[dict], notes: list[str]) -> list[dict]:
             unique.append(same_name[0])
             for extra in same_name[1:]:
                 notes.append(
-                    f"Duplicate skipped: {extra['title']} "
-                    f"({extra['system_label']}) also at {extra['rom_path']}")
+                    i18n.t("rom.duplicateSkipped",
+                           title=extra['title'],
+                           system=extra['system_label'],
+                           path=extra['rom_path']))
 
         if len(unique) > 1:
             _disambiguate(unique)
             notes.append(
-                f"Same name in {unique[0]['system_label']}: kept "
-                + ", ".join(m["title"] for m in unique))
+                i18n.t("rom.sameNameKept",
+                       system=unique[0]['system_label'],
+                       titles=", ".join(m["title"] for m in unique)))
         kept.extend(unique)
     return kept
 
@@ -1678,8 +1685,8 @@ def _apply_command(entry: RomEntry, config: FolderConfig,
                    notes: list[str]) -> None:
     """Turn the folder's command line into a Steam shortcut's exe and args."""
     if not config.command:
-        entry.reason = (f"No launch command for {config.system}. Add one to "
-                        f"{OVERRIDE_FILENAME} in that folder.")
+        entry.reason = i18n.t("rom.noLaunchCommand", system=config.system,
+                              file=OVERRIDE_FILENAME)
         return
 
     # A command with no {rom} builds the same shortcut for every file in the
@@ -1687,9 +1694,8 @@ def _apply_command(entry: RomEntry, config: FolderConfig,
     # someone meant, and it fails silently at launch rather than at sync, so
     # catch it here.
     if ROM_TOKEN not in config.command:
-        entry.reason = (f"The command for {config.system} has no {ROM_TOKEN} "
-                        f"in it, so no ROM would be passed. Add it in "
-                        f"{OVERRIDE_FILENAME}.")
+        entry.reason = i18n.t("rom.commandNoRomToken", system=config.system,
+                              token=ROM_TOKEN, file=OVERRIDE_FILENAME)
         return
 
     command = config.command
@@ -1697,28 +1703,28 @@ def _apply_command(entry: RomEntry, config: FolderConfig,
     if core:
         found = find_core(core)
         if not found:
-            entry.reason = (f"Core {Path(core).name} is not installed.")
+            entry.reason = i18n.t("rom.coreNotInstalled",
+                                  core=Path(core).name)
             return
         if found != core:
             # Self-healing: the file names a path that moved. Use the core we
             # found without rewriting the file, so a hand edit is never lost.
             command = command.replace(core, found)
-            note = f"{config.system}: core moved, using {found}"
+            note = i18n.t("rom.coreMoved", system=config.system, path=found)
             if note not in notes:
                 notes.append(note)
 
     split = split_command(command, entry.rom_path)
     if split is None:
-        entry.reason = f"Couldn't read the command for {config.system}."
+        entry.reason = i18n.t("rom.commandUnreadable", system=config.system)
         return
 
     # A core that is missing gets reported; a plain emulator that is missing
     # used to sync fine and fail on launch. Same failure, so same treatment.
     exe = split[0]
     if not core and not _executable_exists(exe):
-        entry.reason = (f"{exe} isn't installed, so {config.system} can't "
-                        f"launch. Install it, or point the command in "
-                        f"{OVERRIDE_FILENAME} somewhere else.")
+        entry.reason = i18n.t("rom.exeMissing", exe=exe,
+                              system=config.system, file=OVERRIDE_FILENAME)
         return
 
     entry.exe, entry.launch_options = split
@@ -1780,15 +1786,15 @@ def install_retroarch() -> tuple[bool, str]:
     update, and user scope needs no password."""
     exe = _flatpak_bin()
     if not exe:
-        return False, "Can't find the flatpak command."
+        return False, i18n.t("rom.flatpakMissing")
     rc, out, err = _run(
         [exe, "install", "--user", "--noninteractive", "--assumeyes",
          "flathub", RETROARCH_ID],
         timeout=1800,
     )
     if rc == 0:
-        return True, "RetroArch installed."
-    return False, (err or out or "flatpak install failed").strip()
+        return True, i18n.t("rom.retroarchInstalled")
+    return False, (err or out or i18n.t("rom.flatpakFailed")).strip()
 
 
 # --------------------------------------------------------------------------
@@ -1872,9 +1878,9 @@ class Manifest:
             gone = not os.path.exists(prev.get("rom_path", ""))
             off = prev.get("system_key") in disabled_systems
             if gone or uid in excluded or off:
-                why = ("file missing" if gone
-                       else "excluded" if uid in excluded
-                       else "system turned off")
+                why = (i18n.t("rom.planFileMissing") if gone
+                       else i18n.t("rom.planExcluded") if uid in excluded
+                       else i18n.t("rom.planSystemOff"))
                 remove.append(prev | {"uid": uid, "why": why})
 
         return {"add": add, "update": update, "remove": remove,

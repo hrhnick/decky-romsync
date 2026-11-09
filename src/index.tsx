@@ -18,6 +18,7 @@ import {
   getSettings,
   installCores,
   installRetroArch,
+  setLanguage,
   setSettings,
   withTimeout,
 } from "./api";
@@ -27,6 +28,7 @@ import { ManageRom } from "./ManageRom";
 import { refreshManaged } from "./managed";
 import { Settings, SETTINGS_ROUTE } from "./Settings";
 import { cancel, dismissSummary, runSync, SyncOptions, useSyncState } from "./syncStore";
+import { lang, t, tp } from "./i18n";
 
 function RomSync() {
   const sync = useSyncState();
@@ -37,7 +39,7 @@ function RomSync() {
 
   const load = () => {
     setLoadError("");
-    withTimeout(getSettings(), 30000, "Loading settings")
+    withTimeout(getSettings(), 30000, t("common.loadingSettings"))
       .then(setLocal)
       .catch((e) => setLoadError(String(e?.message ?? e)));
   };
@@ -45,9 +47,13 @@ function RomSync() {
   useEffect(load, []);
 
   const pending = [
-    settings?.pending_add ? `${settings.pending_add} to add` : "",
-    settings?.pending_update ? `${settings.pending_update} to update` : "",
-    settings?.pending_remove ? `${settings.pending_remove} to remove` : "",
+    settings?.pending_add ? t("panel.pendingAdd", { count: settings.pending_add }) : "",
+    settings?.pending_update
+      ? t("panel.pendingUpdate", { count: settings.pending_update })
+      : "",
+    settings?.pending_remove
+      ? t("panel.pendingRemove", { count: settings.pending_remove })
+      : "",
   ]
     .filter(Boolean)
     .join(", ");
@@ -61,15 +67,13 @@ function RomSync() {
       const more = removals.length - names.length;
       showModal(
         <ConfirmModal
-          strTitle={`Remove ${removals.length} shortcut${
-            removals.length === 1 ? "" : "s"
-          }?`}
+          strTitle={tp("panel.removeShortcutsTitle", removals.length)}
           strDescription={
             names.join("\n") +
-            (more > 0 ? `\n…and ${more} more.` : "") +
-            "\n\nSteam playtime for these is lost and cannot be restored."
+            (more > 0 ? `\n${t("panel.removeMore", { count: more })}` : "") +
+            `\n\n${t("panel.removeWarning")}`
           }
-          strOKButtonText="Remove them"
+          strOKButtonText={t("common.removeThem")}
           onOK={() => resolve(true)}
           onCancel={() => resolve(false)}
           closeModal={() => resolve(false)}
@@ -83,18 +87,17 @@ function RomSync() {
 
   return (
     <>
-      <PanelSection title="Library">
+      <PanelSection title={t("common.library")}>
         {loadError && (
           <>
             <PanelSectionRow>
               <div style={{ fontSize: "0.8em" }}>
-                Can't reach the plugin backend: {loadError}. Check every file
-                was copied, then restart plugin_loader.
+                {t("panel.backendError", { error: loadError })}
               </div>
             </PanelSectionRow>
             <PanelSectionRow>
               <ButtonItem layout="below" onClick={load}>
-                Retry
+                {t("common.retry")}
               </ButtonItem>
             </PanelSectionRow>
           </>
@@ -103,10 +106,7 @@ function RomSync() {
         {settings?.roots?.length === 0 && (
           <>
             <PanelSectionRow>
-              <div style={{ fontSize: "0.8em" }}>
-                No ROM library yet. Create one below, or set an existing path
-                from the cog above.
-              </div>
+              <div style={{ fontSize: "0.8em" }}>{t("panel.noLibrary")}</div>
             </PanelSectionRow>
             <PanelSectionRow>
               <Focusable
@@ -127,7 +127,7 @@ function RomSync() {
                     }}
                     disabled={sync.busy || !!setupStatus}
                     onClick={async () => {
-                      setSetupStatus("Creating…");
+                      setSetupStatus(t("panel.creating"));
                       const r = await createLibrary(b.path);
                       setSetupStatus(r.message);
                       load();
@@ -147,15 +147,13 @@ function RomSync() {
               layout="below"
               disabled={sync.busy || !!setupStatus}
               onClick={async () => {
-                setSetupStatus("Downloading cores…");
+                setSetupStatus(t("panel.downloadingCores"));
                 const r = await installCores(settings.missing_cores);
                 setSetupStatus(r.message);
                 load();
               }}
             >
-              {`Install ${settings.missing_cores.length} missing core${
-                settings.missing_cores.length === 1 ? "" : "s"
-              }`}
+              {tp("panel.installMissingCores", settings.missing_cores.length)}
             </ButtonItem>
           </PanelSectionRow>
         )}
@@ -172,14 +170,14 @@ function RomSync() {
               layout="below"
               disabled={sync.busy || !!installing}
               onClick={async () => {
-                setInstalling("Installing RetroArch");
+                setInstalling(t("panel.installingRetroArch"));
                 const r = await installRetroArch();
                 setInstalling("");
                 load();
                 if (!r.ok) setInstalling(r.message);
               }}
             >
-              {installing || "Install RetroArch"}
+              {installing || t("panel.installRetroArch")}
             </ButtonItem>
           </PanelSectionRow>
         )}
@@ -190,7 +188,7 @@ function RomSync() {
             disabled={sync.busy}
             onClick={() => startSync()}
           >
-            {sync.busy ? "Working…" : "Sync"}
+            {sync.busy ? t("common.working") : t("common.sync")}
           </ButtonItem>
         </PanelSectionRow>
 
@@ -213,7 +211,7 @@ function RomSync() {
             </PanelSectionRow>
             <PanelSectionRow>
               <ButtonItem layout="below" onClick={cancel}>
-                Stop
+                {t("common.stop")}
               </ButtonItem>
             </PanelSectionRow>
           </>
@@ -221,7 +219,9 @@ function RomSync() {
 
         {sync.phase === "error" && (
           <PanelSectionRow>
-            <div style={{ fontSize: "0.8em" }}>Sync stopped: {sync.status}</div>
+            <div style={{ fontSize: "0.8em" }}>
+              {t("panel.syncStopped", { status: sync.status })}
+            </div>
           </PanelSectionRow>
         )}
 
@@ -244,7 +244,7 @@ function RomSync() {
                   }}
                   onClick={dismissSummary}
                 >
-                  Dismiss
+                  {t("common.dismiss")}
                 </DialogButton>
               </Focusable>
             </PanelSectionRow>
@@ -253,13 +253,15 @@ function RomSync() {
 
       </PanelSection>
 
-      <PanelSection title="Systems">
+      <PanelSection title={t("panel.systems")}>
         {settings?.systems?.length === 0 && (
           <PanelSectionRow>
             <div style={{ fontSize: "0.8em" }}>
               {settings?.empty_folders?.length
-                ? `Waiting for ROMs in ${settings.empty_folders.join(", ")}.`
-                : "No system folders found yet. Add folders like n64 or snes inside your roms folder."}
+                ? t("panel.waitingForRoms", {
+                    folders: settings.empty_folders.join(", "),
+                  })
+                : t("panel.noSystems")}
             </div>
           </PanelSectionRow>
         )}
@@ -336,15 +338,18 @@ function RomSync() {
         {settings?.unknown_folders?.length > 0 && (
           <PanelSectionRow>
             <div style={{ fontSize: "0.72em", opacity: 0.65, ...wrapText }}>
-              Not recognised: {settings.unknown_folders.join(", ")}. Add a
-              .romsync.txt in each with a system and command line.
+              {t("panel.notRecognised", {
+                folders: settings.unknown_folders.join(", "),
+              })}
             </div>
           </PanelSectionRow>
         )}
         {settings?.systems?.length > 0 && settings?.empty_folders?.length > 0 && (
           <PanelSectionRow>
             <div style={{ fontSize: "0.72em", opacity: 0.65, ...wrapText }}>
-              Empty, so not listed: {settings.empty_folders.join(", ")}
+              {t("panel.emptyNotListed", {
+                folders: settings.empty_folders.join(", "),
+              })}
             </div>
           </PanelSectionRow>
         )}
@@ -382,6 +387,10 @@ function TitleView() {
 }
 
 export default definePlugin(() => {
+  // The Python backend formats the messages it returns, so it needs the same
+  // language as this UI. A failure here only leaves those messages in English.
+  setLanguage(lang).catch(() => undefined);
+
   // A failure patching Steam's own React tree must not take the plugin with
   // it — the menu entry is a convenience, the panel is the product.
   let menuPatch: { unpatch: () => void } | null = null;

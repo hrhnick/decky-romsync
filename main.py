@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 import decky  # noqa: E402
 import arcade  # noqa: E402
+import i18n  # noqa: E402
 import romsync as R  # noqa: E402
 import sgdb  # noqa: E402
 
@@ -64,10 +65,25 @@ class Plugin:
         # the frontend can fire several get_art calls concurrently; without
         # this they'd stack threads all hammering the same rate limit.
         self._sgdb_gate = asyncio.Semaphore(1)
+        # The frontend sends this when it loads. Keeping it in settings means a
+        # backend-only restart (plugin_loader) doesn't silently fall back to
+        # English while the already-loaded frontend stays French.
+        i18n.set_language(_read_json(self.settings_path, {}).get("language"))
         decky.logger.info("romsync ready")
 
     async def _unload(self):
         decky.logger.info("romsync unloaded")
+
+    async def set_language(self, lang: str) -> str:
+        """Language used for messages the backend formats for the UI."""
+        resolved = i18n.set_language(lang)
+        path = getattr(self, "settings_path", None)
+        if path is not None:
+            s = _read_json(path, {})
+            if s.get("language") != resolved:
+                s["language"] = resolved
+                _write_json(path, s)
+        return resolved
 
     # -- settings -----------------------------------------------------------
     async def get_settings(self) -> dict:
@@ -197,11 +213,11 @@ class Plugin:
         """Point the plugin at a library auto-detection can't find."""
         raw = (path or "").strip()
         if not raw:
-            return {"ok": False, "message": "Enter a folder path."}
+            return {"ok": False, "message": i18n.t("main.enterFolder")}
 
         resolved = await asyncio.to_thread(R.resolve_library_path, raw)
         if not resolved:
-            return {"ok": False, "message": f"No folder at {raw}."}
+            return {"ok": False, "message": i18n.t("main.noFolder", path=raw)}
 
         ok, detail = await asyncio.to_thread(R.save_library_paths, [raw])
         if not ok:
@@ -212,9 +228,9 @@ class Plugin:
             "path": resolved,
             "file": detail,
             "systems": len(systems),
-            "message": (f"Using {resolved} — {len(systems)} systems found."
-                        if systems else
-                        f"Using {resolved}, but no system folders are in it yet."),
+            "message": (i18n.tn("main.libraryUsing", len(systems),
+                                path=resolved) if systems
+                        else i18n.t("main.libraryEmpty", path=resolved)),
         }
 
     async def create_library(self, base: str) -> dict:
@@ -224,8 +240,8 @@ class Plugin:
         return {
             "ok": True,
             "path": detail,
-            "message": (f"Created {detail} with folders: "
-                        f"{', '.join(systems)}. Drop ROMs into those."),
+            "message": i18n.t("main.libraryCreated", path=detail,
+                              folders=", ".join(systems)),
         }
 
     async def set_core(self, system_dir: str, core: str) -> dict:
@@ -239,8 +255,8 @@ class Plugin:
             if not ok:
                 return {"ok": False, "message": detail}
             present = R.find_core(core)
-            note = (f"Now using {core}." if present
-                    else f"Now using {core}, but that core isn't installed yet.")
+            note = (i18n.t("main.coreUsing", core=core) if present
+                    else i18n.t("main.coreUsingMissing", core=core))
             return {"ok": True, "path": detail, "installed": bool(present),
                     "message": note}
 
@@ -252,12 +268,11 @@ class Plugin:
         bad = [r for r in results if not r["ok"]]
         parts = []
         if good:
-            parts.append(f"Installed {', '.join(good)}.")
+            parts.append(i18n.t("main.coresInstalled", cores=", ".join(good)))
         if bad:
             parts.append(
-                f"Couldn't fetch {', '.join(b['core'] for b in bad)} — "
-                "install them from RetroArch's Core Downloader instead "
-                "(Main Menu, Online Updater, Core Downloader).")
+                i18n.t("main.coresFailed",
+                       cores=", ".join(b['core'] for b in bad)))
         return {"ok": not bad, "installed": good, "message": " ".join(parts)}
 
     async def redetect_library(self) -> dict:
@@ -278,8 +293,9 @@ class Plugin:
         return {
             "ok": bool(roots),
             "roots": roots,
-            "message": (f"Found {len(roots)}: {', '.join(roots)}" if roots
-                        else "No Emulation folder found on any mounted volume."),
+            "message": (i18n.t("main.foundRoots", count=len(roots),
+                               roots=", ".join(roots)) if roots
+                        else i18n.t("main.noEmulationFolder")),
         }
 
     async def install_retroarch(self) -> dict:
@@ -302,7 +318,7 @@ class Plugin:
                     for d in R.detect_systems(probe_roots))
                 if has_arcade:
                     ok, message = self.arcade.refresh()
-                    notes.append(message if ok else f"Arcade names: {message}")
+                    notes.append(message if ok else i18n.t("main.arcadeNames", message=message))
 
             entries, scan_notes, excluded = R.scan(arcade_names=self.arcade)
             notes.extend(scan_notes)
@@ -355,7 +371,7 @@ class Plugin:
         key = _read_json(self.settings_path, {}).get("sgdb_key", "")
         if not key:
             result = {"art": out, "source": "local",
-                      "warning": "Add a SteamGridDB key in settings to fill missing artwork."}
+                      "warning": i18n.t("main.warningNoKey")}
             if icon_path:
                 result["icon_path"] = icon_path
             return result
@@ -366,7 +382,7 @@ class Plugin:
                 best = R.pick_best(title, self.sgdb.search(title))
                 game_id = best["id"] if best else None
             if not game_id:
-                return out, icon_path, None, f"No SteamGridDB match for {title}."
+                return out, icon_path, None, i18n.t("main.noSgdbMatch", title=title)
             for asset in missing:
                 blob = self.sgdb.get_asset(game_id, asset)
                 if blob:
@@ -420,7 +436,7 @@ class Plugin:
         key = _read_json(self.settings_path, {}).get("sgdb_key", "")
         if not key:
             return {"ok": 0, "failed": len(entries), "limited": False,
-                    "reasons": ["No SteamGridDB key set — no artwork will be fetched."]}
+                    "reasons": [i18n.t("main.noKeyPrefetch")]}
 
         def one(entry):
             title = entry.get("title", "")
@@ -435,13 +451,13 @@ class Plugin:
                     best = R.pick_best(title, self.sgdb.search(title))
                     game_id = best["id"] if best else None
                 if not game_id:
-                    return False, f"No SteamGridDB match for {title}."
+                    return False, i18n.t("main.noSgdbMatch", title=title)
                 got = 0
                 for asset in (*ASSETS, "icon"):
                     if self.sgdb.get_asset(game_id, asset):
                         got += 1
                 if got == 0:
-                    return False, f"SteamGridDB has no artwork for {title}."
+                    return False, i18n.t("main.noSgdbArt", title=title)
                 return True, None
             except (sgdb.RateLimited, sgdb.AuthFailed):
                 raise
@@ -506,14 +522,15 @@ class Plugin:
             found = R.import_library_key(force=True)
             if found:
                 return {"ok": True, "path": found[1],
-                        "message": f"Imported key from {found[1]}."}
+                        "message": i18n.t("main.keyImported", path=found[1])}
             searched = [str(d) for d in R.key_search_paths()]
             return {
                 "ok": False,
-                "message": ("No key file found. Looked in: "
-                            + (", ".join(searched) or "nowhere — no library set")
-                            + ". The file should be named steamgriddb_key.txt "
-                              "and contain just the key."),
+                "message": i18n.t(
+                    "main.noKeyFile",
+                    paths=(", ".join(searched)
+                           or i18n.t("main.noKeyFileNowhere")),
+                ),
             }
 
         result = await asyncio.to_thread(work)
@@ -526,7 +543,7 @@ class Plugin:
         key = _read_json(self.settings_path, {}).get("sgdb_key", "")
         if not key:
             return {"ok": False,
-                    "message": "No SteamGridDB key set. Add one above."}
+                    "message": i18n.t("main.noKey")}
         # The cache would otherwise answer for us and hide the real result.
         await asyncio.to_thread(self.sgdb.purge_search_cache)
         ok, message = await asyncio.to_thread(self.sgdb.check_key)

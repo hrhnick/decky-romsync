@@ -30,6 +30,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import i18n
+
 logger = logging.getLogger("romsync.sgdb")
 
 BASE = "https://www.steamgriddb.com/api/v2"
@@ -126,15 +128,15 @@ def describe_tls() -> str:
             return f"{env}={v}"
     try:
         import certifi
-        return f"certifi at {certifi.where()}"
+        return f"certifi: {certifi.where()}"
     except Exception:  # noqa: BLE001
         pass
     for path in CA_BUNDLE_PATHS:
         if os.path.isfile(path):
             return path
     if os.path.isdir("/etc/ssl/certs"):
-        return "/etc/ssl/certs (directory)"
-    return "no CA bundle found"
+        return i18n.t("sgdb.tlsDirectory")
+    return i18n.t("sgdb.noCaBundle")
 
 
 class RateLimited(Exception):
@@ -294,8 +296,8 @@ class SgdbClient:
         except Unavailable as e:
             return False, str(e)
         if not items:
-            return False, "SteamGridDB replied, but returned no results at all."
-        return True, f"Key works — test search returned {len(items)} results."
+            return False, i18n.t("sgdb.noResults")
+        return True, i18n.tn("sgdb.keyWorks", len(items))
 
     def get_thumb(self, game_id: int) -> bytes | None:
         """Small preview of a game's cover, for confirming a match by eye.
@@ -388,21 +390,17 @@ class SgdbClient:
                     # A 403 whose body is a Cloudflare challenge is a blocked
                     # request, not a bad key — different problem, different fix.
                     if e.code == 403 and _looks_like_cloudflare(body):
-                        raise Unavailable(
-                            "Cloudflare blocked the request before it reached "
-                            "SteamGridDB. This is not a key problem."
-                        ) from e
+                        raise Unavailable(i18n.t("sgdb.cloudflare")) from e
                     raise AuthFailed(
-                        f"SteamGridDB rejected the key (HTTP {e.code})."
+                        i18n.t("sgdb.rejectedKey", code=e.code)
                         + (f" {body}" if body else "")) from e
                 if e.code == 404:
                     return None   # genuinely nothing there
                 logger.warning("sgdb %s -> %s", url, e.code)
-                raise Unavailable(f"SteamGridDB returned {e.code}.") from e
+                raise Unavailable(i18n.t("sgdb.httpError", code=e.code)) from e
             except ssl.SSLError as e:
                 raise Unavailable(
-                    f"TLS verification failed ({e}). Trust store: "
-                    f"{describe_tls()}. Check the system clock is correct."
+                    i18n.t("sgdb.tlsError", error=e, store=describe_tls())
                 ) from e
             except OSError as e:
                 last_exc = e
@@ -411,10 +409,8 @@ class SgdbClient:
                 continue
 
         if isinstance(last_exc, urllib.error.HTTPError) and last_exc.code == 429:
-            raise RateLimited(
-                "SteamGridDB is rate limiting us. Artwork will finish on a "
-                "later sync — everything fetched so far is cached.")
-        raise Unavailable(f"Couldn't reach SteamGridDB: {last_exc}")
+            raise RateLimited(i18n.t("sgdb.rateLimited"))
+        raise Unavailable(i18n.t("sgdb.unreachable", error=last_exc))
 
     def _request_json(self, path: str):
         raw = self._do(BASE + path, with_auth=True)
@@ -423,7 +419,7 @@ class SgdbClient:
         try:
             return json.loads(raw.decode("utf-8"))
         except ValueError as e:
-            raise Unavailable("SteamGridDB sent a malformed response.") from e
+            raise Unavailable(i18n.t("sgdb.malformed")) from e
 
     def _request_bytes(self, url: str) -> bytes | None:
         # Image CDN, no auth header — don't leak the API key to a third host.

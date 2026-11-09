@@ -24,6 +24,7 @@ import os
 import re
 import urllib.request
 
+import i18n
 from sgdb import DEFAULT_HEADERS, ssl_context
 from pathlib import Path
 
@@ -92,11 +93,11 @@ class ArcadeNames:
                     request, timeout=timeout, context=ssl_context()) as r:
                 text = r.read().decode("utf-8", errors="replace")
         except OSError as e:
-            return False, f"Couldn't download the arcade name list: {e}"
+            return False, i18n.t("arcade.downloadError", error=e)
 
         mapping = parse_dat(text)
         if not mapping:
-            return False, "Arcade name list downloaded but contained no entries."
+            return False, i18n.t("arcade.empty")
 
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +105,7 @@ class ArcadeNames:
             tmp.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
             os.replace(tmp, self.path)
         except OSError as e:
-            return False, f"Couldn't save the arcade name list: {e}"
+            return False, i18n.t("arcade.saveError", error=e)
 
         self._map = mapping
-        return True, f"{len(mapping)} arcade titles available."
+        return True, i18n.t("arcade.available", count=len(mapping))
