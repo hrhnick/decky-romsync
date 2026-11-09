@@ -22,6 +22,7 @@ import {
   Navigation,
   Patch,
 } from "@decky/ui";
+import { t } from "./i18n";
 
 export const MANAGE_ROUTE = "/romsync-manage";
 const MENU_KEY = "romsync-manage";
@@ -57,7 +58,7 @@ function insertItem(children: any[], appid: number) {
         Navigation.Navigate(MANAGE_ROUTE);
       }}
     >
-      Manage ROM...
+      {t("menu.manageRom")}
     </MenuItem>
   );
   children.splice(idx >= 0 ? idx : children.length, 0, entry);

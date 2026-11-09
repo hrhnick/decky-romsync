@@ -63,6 +63,16 @@ the plugin loads successfully.
 
 ---
 
+## Translations
+
+UI copy exists in English and French. The frontend owns its strings in
+`src/i18n.ts`; the backend owns the messages it formats in `i18n.py`. Both
+dictionaries must carry the same keys — `tsc` enforces that on the frontend,
+and the Python lookup falls back to English per key. Language comes from the
+Steam client locale (`navigator.language`), is sent to the backend once at load
+via `set_language`, and is persisted in `settings.json` so a plugin_loader-only
+restart does not flip the backend back to English.
+
 ## Testing
 
 `romsync.py`, `sgdb.py` and `arcade.py` deliberately import nothing from

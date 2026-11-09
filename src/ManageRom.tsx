@@ -31,6 +31,7 @@ import {
 } from "./PageShell";
 import { AssetType, clearArtwork, setArtwork, setShortcutIcon } from "./steam";
 import { runSync, useSyncState } from "./syncStore";
+import { t } from "./i18n";
 
 /** Label above a read-only value. */
 function Fact({ label, value }: { label: string; value: string }) {
@@ -58,7 +59,7 @@ function Footer({
   status,
   disabled,
   onSave,
-  label = "Save",
+  label = t("common.save"),
 }: {
   busy: boolean;
   progress: number;
@@ -111,7 +112,7 @@ export function ManageRom() {
   const [title, setTitle] = useState("");
   const [exclude, setExclude] = useState(false);
   const [wasExcluded, setWasExcluded] = useState(false);
-  const [status, setStatus] = useState("Loading");
+  const [status, setStatus] = useState(t("manage.loading"));
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [searching, setSearching] = useState(true);
@@ -123,7 +124,7 @@ export function ManageRom() {
         const match = games.find((g) => g.appid === id) ?? null;
         setGame(match);
         if (!match) {
-          setStatus("ROM Sync doesn't manage this game.");
+          setStatus(t("manage.notManaged"));
           setSearching(false);
           return;
         }
@@ -167,12 +168,12 @@ export function ManageRom() {
     if (!game || busy) return;
     const parsed = idText.trim() ? Number(idText.trim()) : 0;
     if (idText.trim() && Number.isNaN(parsed)) {
-      setStatus("SteamGridDB ID must be a number.");
+      setStatus(t("manage.idMustBeNumber"));
       return;
     }
     setBusy(true);
     setProgress(5);
-    setStatus("Saving");
+    setStatus(t("manage.saving"));
     const res = await setOverride(
       game.system_dir,
       game.filename,
@@ -181,7 +182,7 @@ export function ManageRom() {
       exclude,
     );
     if (!res.ok) {
-      setStatus(res.message ?? "Couldn't write the override file.");
+      setStatus(res.message ?? t("manage.overrideWriteError"));
       setBusy(false);
       return;
     }
@@ -190,32 +191,32 @@ export function ManageRom() {
 
     // Artwork is pointless on a game that is about to be removed.
     if (reapply && !exclude && game.appid) {
-      setStatus("Looking up artwork");
+      setStatus(t("manage.lookingUpArt"));
       try {
         const { art, icon_path, warning } = await withTimeout(
           getArt(game.rom_path, title.trim() || game.title, game.system_key, parsed || null),
           60000,
-          "Artwork",
+          t("sync.artLabel"),
         );
         const slots: [string, AssetType, string][] = [
-          ["grid", AssetType.Capsule, "capsule"],
-          ["hero", AssetType.Hero, "hero"],
-          ["logo", AssetType.Logo, "logo"],
-          ["wide", AssetType.Header, "header"],
+          ["grid", AssetType.Capsule, t("manage.slotCapsule")],
+          ["hero", AssetType.Hero, t("manage.slotHero")],
+          ["logo", AssetType.Logo, t("manage.slotLogo")],
+          ["wide", AssetType.Header, t("manage.slotHeader")],
         ];
         const filling = slots.filter(([name]) => art[name]);
-        setStatus("Clearing old artwork");
+        setStatus(t("manage.clearingOldArt"));
         await clearArtwork(game.appid, filling.map(([, type]) => type));
 
         const steps = filling.length + (icon_path ? 1 : 0) || 1;
         let done = 0;
         for (const [name, type, label] of filling) {
-          setStatus(`Applying ${label}`);
+          setStatus(t("manage.applying", { label }));
           await setArtwork(game.appid, art[name], type);
           setProgress(20 + (++done / steps) * 80);
         }
         if (icon_path) {
-          setStatus("Applying icon");
+          setStatus(t("manage.applyingIcon"));
           await setShortcutIcon(game.appid, icon_path);
           setProgress(20 + (++done / steps) * 80);
         }
@@ -231,48 +232,50 @@ export function ManageRom() {
       }
     }
     setProgress(100);
-    setStatus("Saved.");
+    setStatus(t("manage.saved"));
     setBusy(false);
   };
 
   return (
     <PageShell>
       <SidebarNavigation
-        title={game ? game.title : "Manage ROM"}
+        title={game ? game.title : t("manage.manageRom")}
         showTitle
         pages={[
           {
-            title: "About",
+            title: t("manage.about"),
             content: (
               <PageBody>
-                <Fact label="System" value={game?.system_label ?? ""} />
-                <Fact label="Emulator" value={game?.emulator ?? ""} />
-                <Fact label="ROM file" value={game?.rom_path ?? ""} />
+                <Fact label={t("manage.system")} value={game?.system_label ?? ""} />
+                <Fact label={t("manage.emulator")} value={game?.emulator ?? ""} />
+                <Fact label={t("manage.romFile")} value={game?.rom_path ?? ""} />
                 <Fact
-                  label="Launches with"
+                  label={t("manage.launchesWith")}
                   value={
                     game ? `${game.exe ?? ""} ${game.launch_options ?? ""}`.trim() : ""
                   }
                 />
                 <Row>
                   <div style={{ ...ui.small, opacity: ui.dim, ...wrapText }}>
-                    Artwork you place in{" "}
-                    {game?.system_dir ? `${game.system_dir}/media/grid/` : "the system's media folder"}{" "}
-                    overrides SteamGridDB for this game. The launch command
-                    comes from {ov?.path ?? "the system's .romsync.txt"}.
+                    {t("manage.mediaNote", {
+                      grid: game?.system_dir
+                        ? `${game.system_dir}/media/grid/`
+                        : t("manage.mediaFolderDefault"),
+                      path: ov?.path ?? t("manage.romsyncDefault"),
+                    })}
                   </div>
                 </Row>
               </PageBody>
             ),
           },
           {
-            title: "Artwork",
+            title: t("manage.artwork"),
             content: (
               <PageBody>
                 {searching && (
                   <Row>
                     <div style={{ ...ui.text, opacity: ui.dim }}>
-                      Searching SteamGridDB…
+                      {t("manage.searching")}
                     </div>
                   </Row>
                 )}
@@ -280,7 +283,7 @@ export function ManageRom() {
                 {!searching && candidates.length === 0 && (
                   <Row>
                     <div style={{ ...ui.text, opacity: ui.dim }}>
-                      No SteamGridDB matches. Enter an ID below if you know it.
+                      {t("manage.noMatches")}
                     </div>
                   </Row>
                 )}
@@ -319,7 +322,7 @@ export function ManageRom() {
                             boxSizing: "border-box",
                           }}
                         >
-                          {idText ? "No cover" : "Pick a game"}
+                          {idText ? t("manage.noCover") : t("manage.pickGame")}
                         </div>
                       )}
 
@@ -381,8 +384,8 @@ export function ManageRom() {
                 <Row>
                   <Focusable>
                     <TextField
-                      label="SteamGridDB ID"
-                      description="Leave empty to match by name."
+                      label={t("manage.sgdbIdLabel")}
+                      description={t("manage.sgdbIdDesc")}
                       value={idText}
                       onChange={(e) => setIdText(e.target.value)}
                     />
@@ -392,8 +395,8 @@ export function ManageRom() {
                 <Row>
                   <Focusable>
                     <TextField
-                      label="Title"
-                      description="Leave empty to use the name from the filename."
+                      label={t("manage.titleLabel")}
+                      description={t("manage.titleDesc")}
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                     />
@@ -411,13 +414,13 @@ export function ManageRom() {
             ),
           },
           {
-            title: "Danger zone",
+            title: t("common.dangerZone"),
             content: (
               <PageBody>
                 <Row>
                   <ToggleField
-                    label="Exclude from Steam"
-                    description="Removes the shortcut on the next sync and keeps it out."
+                    label={t("manage.excludeLabel")}
+                    description={t("manage.excludeDesc")}
                     checked={exclude}
                     onChange={setExclude}
                   />
@@ -425,11 +428,9 @@ export function ManageRom() {
 
                 <Row>
                   <div style={{ ...ui.small, opacity: ui.dim, ...wrapText }}>
-                    To hide a game temporarily, use Steam's own Manage &rsaquo;
-                    Hide instead — it is reversible from the library. Excluding
-                    is for keeping a game out for good: the plugin will not add
-                    it back, and only editing {ov?.path ?? ".romsync.txt"} will
-                    undo it. Either way the ROM file itself is never deleted.
+                    {t("manage.excludeNote", {
+                      path: ov?.path ?? ".romsync.txt",
+                    })}
                   </div>
                 </Row>
 
@@ -445,8 +446,7 @@ export function ManageRom() {
                   <>
                     <Row>
                       <div style={{ ...ui.small, opacity: ui.dim, ...wrapText }}>
-                        Queued. The shortcut goes on the next sync, or remove it
-                        now.
+                        {t("manage.queued")}
                       </div>
                     </Row>
                     <Row>
@@ -456,7 +456,7 @@ export function ManageRom() {
                           disabled={sync.busy}
                           onClick={() => runSync()}
                         >
-                          {sync.busy ? "Syncing…" : "Sync now"}
+                          {sync.busy ? t("common.syncing") : t("common.syncNow")}
                         </DialogButton>
                       </ActionRow>
                     </Row>

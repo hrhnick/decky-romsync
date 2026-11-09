@@ -25,6 +25,7 @@ import {
 } from "./api";
 import { ActionRow, compactButton, PageBody, PageShell, Row, wrapText } from "./PageShell";
 import { runReset, useSyncState } from "./syncStore";
+import { t, tp } from "./i18n";
 
 export const SETTINGS_ROUTE = "/romsync-settings";
 
@@ -49,7 +50,7 @@ export function Settings() {
 
   const load = () => {
     setLoadError("");
-    withTimeout(getSettings(), 30000, "Loading settings")
+    withTimeout(getSettings(), 30000, t("common.loadingSettings"))
       .then((s) => {
         setLocal(s);
         setKey(s.sgdb_key ?? "");
@@ -63,13 +64,9 @@ export function Settings() {
   const confirmReset = () =>
     showModal(
       <ConfirmModal
-        strTitle="Remove all synced games?"
-        strDescription={
-          "This removes every shortcut ROM Sync created. Shortcuts it adopted " +
-          "from another tool are left in place and simply forgotten. Your ROMs, " +
-          "collections and .romsync.txt files are not touched."
-        }
-        strOKButtonText="Remove them"
+        strTitle={t("settings.removeAllTitle")}
+        strDescription={t("settings.removeAllBody")}
+        strOKButtonText={t("common.removeThem")}
         onOK={() => {
           runReset();
           Navigation.NavigateBack();
@@ -89,29 +86,30 @@ export function Settings() {
         showTitle
         pages={[
           {
-            title: "Library",
+            title: t("common.library"),
             content: (
               <PageBody>
                 {settings?.roots?.length === 0 && (
                   <Row>
                     <div style={{ fontSize: "0.8em" }}>
-                      No Emulation folder found. Enter the path below, or press
-                      Re-detect after plugging in your card.
+                      {t("settings.noEmulationFolder")}
                     </div>
                   </Row>
                 )}
                 {settings?.roots?.length > 0 && (
                   <Row>
                     <div style={{ fontSize: "0.72em", opacity: 0.65, ...wrapText }}>
-                      Scanning: {settings.roots.join(", ")}
+                      {t("settings.scanning", {
+                        folders: settings.roots.join(", "),
+                      })}
                     </div>
                   </Row>
                 )}
                 <Row>
                   <Focusable>
                     <TextField
-                      label="Path"
-                      description="Your Emulation folder, or the roms folder inside it."
+                      label={t("settings.pathLabel")}
+                      description={t("settings.pathDescription")}
                       value={libPath}
                       onChange={(e) => setLibPath(e.target.value)}
                     />
@@ -123,25 +121,25 @@ export function Settings() {
                         style={compactButton}
                         disabled={sync.busy}
                         onClick={async () => {
-                          setLibStatus("Checking…");
+                          setLibStatus(t("settings.checking"));
                           const r = await setLibraryPath(libPath);
                           setLibStatus(r.message);
                           if (r.ok) load();
                         }}
                       >
-                        Use this folder
+                        {t("settings.useThisFolder")}
                       </DialogButton>
                       <DialogButton
                         style={compactButton}
                         disabled={sync.busy}
                         onClick={async () => {
-                          setLibStatus("Scanning…");
+                          setLibStatus(t("settings.scanningAction"));
                           const r = await redetectLibrary();
                           setLibStatus(r.message);
                           load();
                         }}
                       >
-                        Re-detect
+                        {t("settings.redetect")}
                       </DialogButton>
                   </ActionRow>
                 </Row>
@@ -153,7 +151,7 @@ export function Settings() {
                 {settings?.library_file && (
                   <Row>
                     <div style={{ fontSize: "0.72em", opacity: 0.65, ...wrapText }}>
-                      Saved in {settings.library_file} — editable by hand.
+                      {t("settings.savedIn", { file: settings.library_file })}
                     </div>
                   </Row>
                 )}
@@ -167,7 +165,7 @@ export function Settings() {
                 <Row>
                   <Focusable>
                     <TextField
-                      label="API key"
+                      label={t("settings.apiKey")}
                       value={key}
                       bIsPassword
                       onChange={(e) => setKey(e.target.value)}
@@ -182,39 +180,38 @@ export function Settings() {
                         disabled={sync.busy}
                         onClick={async () => {
                           await setSettings({ sgdb_key: key });
-                          setKeyStatus("Testing…");
+                          setKeyStatus(t("settings.testing"));
                           const r = await testKey();
                           setKeyStatus(r.message);
                           load();
                         }}
                       >
-                        Save &amp; test
+                        {t("settings.saveAndTest")}
                       </DialogButton>
                       <DialogButton
                         style={compactButton}
                         disabled={sync.busy}
                         onClick={async () => {
-                          setKeyStatus("Looking for a key file…");
+                          setKeyStatus(t("settings.lookingForKeyFile"));
                           const r = await reimportKey();
                           setKeyStatus(r.message);
                           load();
                         }}
                       >
-                        Import file
+                        {t("settings.importFile")}
                       </DialogButton>
                       <DialogButton
                         style={compactButton}
                         disabled={sync.busy}
                         onClick={async () => {
-                          setKeyStatus("Clearing…");
+                          setKeyStatus(t("settings.clearing"));
                           const r = await purgeArtCache();
                           setKeyStatus(
-                            `Cleared ${r.removed} cached files. The next sync re-downloads ` +
-                              "artwork for games that are missing it.",
+                            t("settings.cacheCleared", { count: r.removed }),
                           );
                         }}
                       >
-                        Clear cache
+                        {t("settings.clearCache")}
                       </DialogButton>
                   </ActionRow>
                 </Row>
@@ -225,40 +222,42 @@ export function Settings() {
                 )}
                 <Row>
                   <div style={{ fontSize: "0.72em", opacity: 0.65 }}>
-                    Import file picks up a key saved next to your library — any of
-                    steamgriddb_key.txt, .steamgriddb_key or .steamgriddb_key.txt.
-                    Clear cache first if you want fresh images from SteamGridDB.
-                    Artwork you place in a system's media folder always overrides both.
+                    {t("settings.importHelp")}
                   </div>
                 </Row>
                 {settings?.imported_from && (
                   <Row>
                     <div style={{ fontSize: "0.72em", opacity: 0.65 }}>
-                      Imported your key from {settings.imported_from}. That file is left
-                      in place so other devices sharing this library can use it too.
+                      {t("settings.keyImported", { path: settings.imported_from })}
                     </div>
                   </Row>
                 )}
                 <Row>
                   <div style={{ fontSize: "0.72em", opacity: 0.65 }}>
                     {settings?.key_file_path
-                      ? `Stored in ${settings.key_file_path}`
-                      : `Saved to ${settings?.key_save_target ?? "the config folder"}.`}
-                    {" Artwork next to a ROM in a media folder always wins over SteamGridDB."}
+                      ? t("settings.storedIn", { path: settings.key_file_path })
+                      : t("settings.savedTo", {
+                          target:
+                            settings?.key_save_target ??
+                            t("settings.configFolder"),
+                        })}
+                    {` ${t("settings.artworkWins")}`}
                   </div>
                 </Row>
               </PageBody>
             ),
           },
           {
-            title: "Emulators",
+            title: t("settings.emulators"),
             content: (
               <PageBody>
                 <Row>
                   <div style={{ fontSize: "0.8em", ...wrapText }}>
                     {settings?.retroarch_installed
-                      ? `RetroArch installed · ${settings?.cores?.length ?? 0} cores available`
-                      : "RetroArch is not installed."}
+                      ? t("settings.retroarchInstalled", {
+                          count: settings?.cores?.length ?? 0,
+                        })
+                      : t("settings.retroarchMissing")}
                   </div>
                 </Row>
 
@@ -270,14 +269,14 @@ export function Settings() {
                         disabled={coreBusy}
                         onClick={async () => {
                           setCoreBusy(true);
-                          setCoreStatus("Installing RetroArch…");
+                          setCoreStatus(t("settings.installingRetroArch"));
                           const r = await installRetroArch();
                           setCoreStatus(r.message);
                           setCoreBusy(false);
                           load();
                         }}
                       >
-                        Install RetroArch
+                        {t("panel.installRetroArch")}
                       </DialogButton>
                     </ActionRow>
                   </Row>
@@ -290,8 +289,8 @@ export function Settings() {
                     the panel. */}
                 <Row>
                   <ToggleField
-                    label="Show launch commands"
-                    description="What each system runs, and which file it lives in."
+                    label={t("settings.showCommands")}
+                    description={t("settings.showCommandsDesc")}
                     checked={showCommands}
                     onChange={setShowCommands}
                   />
@@ -348,11 +347,14 @@ export function Settings() {
                                     data: o.core,
                                     label: o.installed
                                       ? o.core
-                                      : `${o.core} · not installed`,
+                                      : t("settings.coreNotInstalled", {
+                                          core: o.core,
+                                        }),
                                   }))
                                 : [{
                                     data: "custom",
-                                    label: sys.emulator || "no command set",
+                                    label:
+                                      sys.emulator || t("settings.noCommandSet"),
                                   }]
                             }
                             onChange={async (opt) => {
@@ -381,7 +383,7 @@ export function Settings() {
                               ...wrapText,
                             }}
                           >
-                            {sys.command || "no command set"}
+                            {sys.command || t("settings.noCommandSet")}
                           </div>
                           <div
                             style={{
@@ -402,7 +404,7 @@ export function Settings() {
                 {settings?.systems?.length === 0 && (
                   <Row>
                     <div style={{ fontSize: "0.8em", opacity: 0.65 }}>
-                      No systems with games yet.
+                      {t("settings.noSystemsWithGames")}
                     </div>
                   </Row>
                 )}
@@ -421,16 +423,14 @@ export function Settings() {
                         disabled={coreBusy || sync.busy}
                         onClick={async () => {
                           setCoreBusy(true);
-                          setCoreStatus("Downloading cores…");
+                          setCoreStatus(t("panel.downloadingCores"));
                           const r = await installCores(settings.missing_cores);
                           setCoreStatus(r.message);
                           setCoreBusy(false);
                           load();
                         }}
                       >
-                        {`Install ${settings.missing_cores.length} missing core${
-                          settings.missing_cores.length === 1 ? "" : "s"
-                        }`}
+                        {tp("panel.installMissingCores", settings.missing_cores.length)}
                       </DialogButton>
                     </ActionRow>
                   </Row>
@@ -438,17 +438,14 @@ export function Settings() {
 
                 <Row>
                   <div style={{ fontSize: "0.72em", opacity: 0.65, ...wrapText }}>
-                    Changing a core here rewrites one argument in that
-                    system's .romsync.txt and leaves the rest of the command,
-                    and any comments, exactly as written. Games pick it up on
-                    the next sync.
+                    {t("settings.coreChangeNote")}
                   </div>
                 </Row>
               </PageBody>
             ),
           },
           {
-            title: "Danger zone",
+            title: t("common.dangerZone"),
             content: (
               <PageBody>
                 <Row>
@@ -458,7 +455,7 @@ export function Settings() {
                       disabled={sync.busy}
                       onClick={confirmReset}
                     >
-                      Remove all synced games
+                      {t("settings.removeAllButton")}
                     </DialogButton>
                   </ActionRow>
                 </Row>
